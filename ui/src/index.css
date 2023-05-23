@@ -1,0 +1,25 @@
+
+
+.appcontainer {
+  width: 100%;
+  height: 100%;
+
+  display: flex;
+  flex-direction: row;
+}
+
+.tab {
+  width: 100%;
+  height: 100%;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+
+  padding: 0 100px;
+}
+
+.icon {
+  height: 50px;
+}
