@@ -19,7 +19,7 @@
     }
 
     &.failed {
-        box-shadow: #ff7b53;
+        border-color: #f52e2e;
     }
 
     padding: 4px 8px;
@@ -35,7 +35,7 @@
 
     >svg {
         fill: rgb(255, 255, 255);
-        height: 20px;
+        height: 15px;
     }
 }
 
@@ -44,19 +44,19 @@
 
     border-radius: 4px;
     border: 3px solid transparent;
-    
-    box-shadow: 0px 8px 10px  #646cff;
+
+    box-shadow: 0px 8px 10px #646cff;
 
     &.working {
-        box-shadow: 0px 8px 10px  #646cff;
+        box-shadow: 0px 8px 10px #646cff;
     }
 
     &.done {
-        box-shadow: 0px 8px 10px  #53ff98;
+        box-shadow: 0px 8px 10px #53ff98;
     }
 
     &.failed {
-        box-shadow: 0px 8px 10px  #ff7b53;
+        box-shadow: 0px 8px 10px #f52e2e;
     }
 
     overflow: hidden;
@@ -86,7 +86,7 @@
     align-items: center;
     gap: 10px;
 
-    > button {
+    >button {
         border-color: #d0d2ff;
     }
 }
@@ -111,16 +111,19 @@
     border-radius: 5px 5px 0 0;
     position: relative;
 }
+
 .terminal .top {
-    background: #a6abff;
+    background: #fffefe;
     color: black;
     padding: 1px;
     border-radius: 5px 5px 0 0;
 }
+
 .terminal .btns {
     position: absolute;
     left: 5px;
 }
+
 .terminal .circle {
     width: 6px;
     height: 6px;
@@ -130,20 +133,46 @@
     border-width: 1px;
     border-style: solid;
 }
-.title{
+
+.title {
     text-align: center;
 }
-.red { background: #EC6A5F; border-color: #D04E42; }
-.green { background: #64CC57; border-color: #4EA73B; }
-.yellow{ background: #F5C04F; border-color: #D6A13D; }
+
+.red {
+    background: #EC6A5F;
+    border-color: #D04E42;
+}
+
+.green {
+    background: #64CC57;
+    border-color: #4EA73B;
+}
+
+.yellow {
+    background: #F5C04F;
+    border-color: #D6A13D;
+}
+
 .terminal .body {
     background: black;
-    color: #a6abff;
+    color: #fffefe;
     padding: 0 0 5px 10px;
     overflow: auto;
 }
 
 .delete-icon {
-    fill: white;
+    fill: #f52e2e;
     height: 10px;
+}
+
+.download-icon {
+
+    padding: 0.2em 0.5em;
+
+    >svg {
+        stroke: #53ff98;
+        fill: #53ff98;
+        height: 12px;
+    }
+
 }

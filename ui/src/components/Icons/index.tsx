@@ -63,13 +63,13 @@ export const Cross = forwardRef<SVGSVGElement, React.HTMLAttributes<SVGSVGElemen
 
 export const ChevronUp = forwardRef<SVGSVGElement, React.HTMLAttributes<SVGSVGElement>>((props, fwdRef) => (
     <svg ref={fwdRef} viewBox="0 0 10 6" {...props}>
-        <path d="M1.37 6L0 4.623 4.315.285a.965.965 0 0 1 1.37 0L10 4.623 8.63 6 5 2.35 1.37 6z"/>
+        <path d="M1.37 6L0 4.623 4.315.285a.965.965 0 0 1 1.37 0L10 4.623 8.63 6 5 2.35 1.37 6z" />
     </svg>
 ))
 
 export const ChevronDown = forwardRef<SVGSVGElement, React.HTMLAttributes<SVGSVGElement>>((props, fwdRef) => (
     <svg ref={fwdRef} viewBox="0 0 10 6" {...props}>
-        <path d="M8.63 0L10 1.377 5.685 5.715a.965.965 0 0 1-1.37 0L0 1.377 1.37 0 5 3.65 8.63 0z"/>
+        <path d="M8.63 0L10 1.377 5.685 5.715a.965.965 0 0 1-1.37 0L0 1.377 1.37 0 5 3.65 8.63 0z" />
     </svg>
 ))
 
@@ -78,5 +78,17 @@ export const Delete = forwardRef<SVGSVGElement, React.HTMLAttributes<SVGSVGEleme
         <path
             d="M2 .778l.08-.25A.76.76 0 0 1 2.804 0h3.392a.76.76 0 0 1 .723.527L7 .777h2v1.556H0V.778h2zM.818 3.888h7.364a.76.76 0 0 1 .757.817l-.637 8.591a.76.76 0 0 1-.758.704H1.456a.76.76 0 0 1-.758-.704L.06 4.706a.76.76 0 0 1 .757-.817z"
         />
+    </svg>
+))
+
+export const Download = forwardRef<SVGSVGElement, React.HTMLAttributes<SVGSVGElement>>((props, fwdRef) => (
+    <svg ref={fwdRef} viewBox="0 0 24 24" {...props}>
+        <g id="SVGRepo_bgCarrier" stroke-width="0"/>
+        <g id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round"/>
+        <g id="SVGRepo_iconCarrier">
+            <g id="Interface / Download">
+                <path id="Vector" d="M6 21H18M12 3V17M12 17L17 12M12 17L7 12" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+        </g>
     </svg>
 ))

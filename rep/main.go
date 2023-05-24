@@ -1,14 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/gin-contrib/static"
@@ -50,43 +51,51 @@ type TrainingTaskPayload struct {
 }
 
 type TrainingTask struct {
-	TaskListenersExt
+	ID              string
+	Listeners       map[string]*gin.Context `json:"-"`
 	Type            TaskType
 	CreationTime    time.Time
 	TerminationTime *time.Time `json:",omitempty"`
 	Status          TaskStatus
 	TrainingTaskCommon
-	Process *os.Process `json:"-"`
-}
-
-type TaskListenersExt struct {
-	ID        string
-	Listeners map[string]*gin.Context `json:"-"`
+	Process       *os.Process `json:"-"`
+	FailureReason string      `json:",omitempty"`
 }
 
 const PERIODIC_PURGE_INTERVAL = 24 * time.Hour
 
 var tasks = make(map[string]TrainingTask)
 
-func (c TaskListenersExt) Write(p []byte) (int, error) {
-	// need to find a way to remove this shit from python directly
-	noN := strings.ReplaceAll(string(p), "\n", "")
-	noR := strings.ReplaceAll(noN, "\r", "")
+func handleCmdErrors(s io.ReadCloser, id string) {
+	readBytes, _ := io.ReadAll(s)
+	task := tasks[id]
+	task.FailureReason = string(readBytes)
+	tasks[id] = task
+}
 
-	for _, context := range c.Listeners {
-		context.Writer.Write([]byte(fmt.Sprintf("id: %s\n", c.ID)))
-		context.Writer.Write([]byte("event: onStatus\n"))
-		context.Writer.Write([]byte(fmt.Sprintf("data: %s\n\n", noR)))
-		context.Writer.Flush()
+func handleCmdOutput(pipe io.ReadCloser, taskId string, listeners map[string]*gin.Context) {
+	reader := bufio.NewReader(pipe)
+
+	for {
+		line, _, err := reader.ReadLine()
+		if err != nil {
+			return
+		}
+
+		for _, context := range listeners {
+			context.Writer.Write([]byte(fmt.Sprintf("id: %s\n", taskId)))
+			context.Writer.Write([]byte("event: onStatus\n"))
+			context.Writer.Write([]byte(fmt.Sprintf("data: %s\n\n", string(line))))
+			context.Writer.Flush()
+		}
 	}
-
-	return len(p), nil
 }
 
 func trainPipe(c *gin.Context) {
 	var trainingTaskPayload TrainingTaskPayload
 
-	if parseRequestError := c.ShouldBind(&trainingTaskPayload); parseRequestError != nil {
+	parseRequestError := c.ShouldBind(&trainingTaskPayload)
+	if parseRequestError != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, parseRequestError.Error())
 		return
 	}
@@ -96,44 +105,47 @@ func trainPipe(c *gin.Context) {
 
 	for index, file := range dataset {
 		fileExtension := filepath.Ext(file.Filename)
-
 		if fileExtension != ".wav" {
 			continue
 		}
 
 		savePath := fmt.Sprintf("%s/%d%s", taskId, index, fileExtension)
 
-		if err := c.SaveUploadedFile(file, savePath); err != nil {
+		err := c.SaveUploadedFile(file, savePath)
+		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, err.Error())
 			return
 		}
 	}
 
+	cmd := exec.Command("python", "../scripts/test.py")
+	stdout, stdOutErr := cmd.StdoutPipe()
+	if stdOutErr != nil {
+		fmt.Println(stdOutErr)
+	}
+	stderr, stdErrErr := cmd.StderrPipe()
+	if stdErrErr != nil {
+		fmt.Println(stdErrErr)
+	}
+
 	tasks[taskId] = TrainingTask{
-		CreationTime: time.Now(),
-		Status:       WORKING,
-		TaskListenersExt: TaskListenersExt{
-			ID:        taskId,
-			Listeners: make(map[string]*gin.Context),
-		},
+		CreationTime:       time.Now(),
+		Process:            cmd.Process,
+		Status:             WORKING,
+		ID:                 taskId,
+		Listeners:          make(map[string]*gin.Context),
 		TrainingTaskCommon: trainingTaskPayload.TrainingTaskCommon,
 		Type:               TRAINING,
 	}
 
-	cmd := exec.Command("python", "../scripts/test.py")
-	cmd.Stdout = TaskListenersExt{
-		ID:        tasks[taskId].ID,
-		Listeners: tasks[taskId].Listeners,
-	}
+	go handleCmdOutput(stdout, taskId, tasks[taskId].Listeners)
+	go handleCmdErrors(stderr, taskId)
 
-	if startCommandError := cmd.Start(); startCommandError != nil {
+	startCommandError := cmd.Start()
+	if startCommandError != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, startCommandError.Error())
 		return
 	}
-
-	task := tasks[taskId]
-	task.Process = cmd.Process
-	tasks[taskId] = task
 
 	c.JSON(http.StatusOK, taskId)
 
@@ -154,12 +166,15 @@ func trainPipe(c *gin.Context) {
 		tasks[taskId] = task
 
 		for _, context := range task.Listeners {
-
 			context.Writer.Write([]byte(fmt.Sprintf("id: %s\n", task.ID)))
 			context.Writer.Write([]byte("event: onChange\n"))
 			data, _ := json.Marshal(gin.H{task.ID: task})
 			context.Writer.Write([]byte(fmt.Sprintf("data: %s\n\n", data)))
 			context.Writer.Flush()
+		}
+
+		if task.Status == FAILED {
+			purgeTask(taskId)
 		}
 	})
 }
@@ -253,8 +268,6 @@ func purgeTask(taskId string) {
 	} else {
 		fmt.Println("Directory", taskId, "removed successfully")
 	}
-
-	fmt.Println("purgeTask", tasks)
 }
 
 func periodicPurge() {

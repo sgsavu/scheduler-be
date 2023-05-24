@@ -1,6 +1,6 @@
 import { memo, useState, useEffect, useCallback, MouseEventHandler } from "react";
 import './index.css'
-import { Cross, Delete, Tick, Train } from "../Icons";
+import { Cross, Delete, Download, Tick, Train } from "../Icons";
 import { Infer } from "../Icons";
 import { DualRing } from "../Spinners";
 import { Task as TaskInterface, TaskStatus, TaskType } from "../../const";
@@ -175,9 +175,13 @@ export const Task = memo<TaskProps>(function Task({
                     </div>
                     <div className="task-buttons">
                         {Status === TaskStatus.DONE && (
-                            <button onClick={onDownload}>Download</button>
+                            <button className="download-icon" onClick={onDownload}>
+                                <Download/>
+                            </button>
                         )}
-                        <button onClick={onLocalDelete}><Delete className="delete-icon"></Delete></button>
+                        <button onClick={onLocalDelete}>
+                            <Delete className="delete-icon"/>
+                        </button>
                     </div>
                 </div>
             )}
