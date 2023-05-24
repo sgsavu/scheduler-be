@@ -1,10 +1,12 @@
 package main
 
 import (
+	"archive/zip"
 	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -26,9 +28,10 @@ const (
 )
 
 const (
-	WORKING TaskStatus = "WORKING"
-	DONE    TaskStatus = "DONE"
-	FAILED  TaskStatus = "FAILED"
+	CANCELLED TaskStatus = "CANCELLED"
+	DONE      TaskStatus = "DONE"
+	FAILED    TaskStatus = "FAILED"
+	WORKING   TaskStatus = "WORKING"
 )
 
 type InferringTaskPayload struct {
@@ -50,7 +53,7 @@ type TrainingTaskPayload struct {
 	Dataset []*multipart.FileHeader `form:"dataset" binding:"required"`
 }
 
-type TrainingTask struct {
+type Task struct {
 	ID              string
 	Listeners       map[string]*gin.Context `json:"-"`
 	Type            TaskType
@@ -64,7 +67,7 @@ type TrainingTask struct {
 
 const PERIODIC_PURGE_INTERVAL = 24 * time.Hour
 
-var tasks = make(map[string]TrainingTask)
+var tasks = make(map[string]Task)
 
 func handleCmdErrors(s io.ReadCloser, id string) {
 	readBytes, _ := io.ReadAll(s)
@@ -91,6 +94,45 @@ func handleCmdOutput(pipe io.ReadCloser, taskId string, listeners map[string]*gi
 	}
 }
 
+func zipResult(taskId string) {
+	outputPath := taskId + "/output"
+
+	files, err := ioutil.ReadDir(outputPath)
+	if err != nil {
+		panic(err)
+	}
+
+	archive, err := os.Create(outputPath + "/result.zip")
+	if err != nil {
+		panic(err)
+	}
+	defer archive.Close()
+
+	zipWriter := zip.NewWriter(archive)
+
+	for _, file := range files {
+		filePath := outputPath + "/" + file.Name()
+
+		f1, err := os.Open(filePath)
+		if err != nil {
+			panic(err)
+		}
+
+		w1, err := zipWriter.Create(file.Name())
+		if err != nil {
+			panic(err)
+		}
+		if _, err := io.Copy(w1, f1); err != nil {
+			panic(err)
+		}
+
+		f1.Close()
+		os.Remove(filePath)
+	}
+
+	zipWriter.Close()
+}
+
 func trainPipe(c *gin.Context) {
 	var trainingTaskPayload TrainingTaskPayload
 
@@ -109,7 +151,7 @@ func trainPipe(c *gin.Context) {
 			continue
 		}
 
-		savePath := fmt.Sprintf("%s/%d%s", taskId, index, fileExtension)
+		savePath := fmt.Sprintf("%s/input/%d%s", taskId, index, fileExtension)
 
 		err := c.SaveUploadedFile(file, savePath)
 		if err != nil {
@@ -118,7 +160,7 @@ func trainPipe(c *gin.Context) {
 		}
 	}
 
-	cmd := exec.Command("python", "../scripts/test.py")
+	cmd := exec.Command("python", "../scripts/test.py", taskId)
 	stdout, stdOutErr := cmd.StdoutPipe()
 	if stdOutErr != nil {
 		fmt.Println(stdOutErr)
@@ -128,9 +170,8 @@ func trainPipe(c *gin.Context) {
 		fmt.Println(stdErrErr)
 	}
 
-	tasks[taskId] = TrainingTask{
+	tasks[taskId] = Task{
 		CreationTime:       time.Now(),
-		Process:            cmd.Process,
 		Status:             WORKING,
 		ID:                 taskId,
 		Listeners:          make(map[string]*gin.Context),
@@ -147,6 +188,10 @@ func trainPipe(c *gin.Context) {
 		return
 	}
 
+	task := tasks[taskId]
+	task.Process = cmd.Process
+	tasks[taskId] = task
+
 	c.JSON(http.StatusOK, taskId)
 
 	time.AfterFunc(1*time.Second, func() {
@@ -156,11 +201,16 @@ func trainPipe(c *gin.Context) {
 		task := tasks[taskId]
 		task.TerminationTime = &timeNow
 
+		if task.Status == CANCELLED {
+			purgeTask(taskId)
+			return
+		}
+
 		if err != nil {
-			fmt.Println("Error", err)
 			task.Status = FAILED
 		} else {
 			task.Status = DONE
+			zipResult(taskId)
 		}
 
 		tasks[taskId] = task
@@ -175,6 +225,12 @@ func trainPipe(c *gin.Context) {
 
 		if task.Status == FAILED {
 			purgeTask(taskId)
+			return
+		}
+
+		removalErr := os.RemoveAll(taskId + "/input")
+		if removalErr != nil {
+			fmt.Println(err)
 		}
 	})
 }
@@ -256,7 +312,8 @@ func getResult(context *gin.Context) {
 		return
 	}
 
-	context.File(taskId + "/result.zip")
+	context.Writer.Header().Set("Content-Type", "application/zip")
+	context.File(taskId + "/output" + "/result.zip")
 }
 
 func purgeTask(taskId string) {
@@ -265,15 +322,13 @@ func purgeTask(taskId string) {
 	err := os.RemoveAll(taskId)
 	if err != nil {
 		fmt.Println(err)
-	} else {
-		fmt.Println("Directory", taskId, "removed successfully")
 	}
 }
 
 func periodicPurge() {
 	for {
 		for taskId, task := range tasks {
-			if task.Status == DONE || task.Status == FAILED {
+			if task.Status == DONE {
 				purgeTask(taskId)
 			}
 		}
@@ -292,12 +347,18 @@ func deleteTask(context *gin.Context) {
 	}
 
 	if task.Status == WORKING {
-		if err := task.Process.Kill(); err != nil {
+		err := task.Process.Kill()
+		if err != nil {
 			fmt.Println("failed to kill process: ", err)
 		}
+		task.Status = CANCELLED
+		tasks[taskId] = task
+		context.JSON(http.StatusOK, "Success")
+		return
 	}
 
 	purgeTask(taskId)
+	context.JSON(http.StatusOK, "Success")
 }
 
 func main() {

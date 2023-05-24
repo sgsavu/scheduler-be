@@ -97,7 +97,12 @@ export const Task = memo<TaskProps>(function Task({
                 }
 
                 fetch(`v1/tasks/${id}/result`)
-                    .then(response => response.blob())
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(response.status + ' ' + response.statusText)
+                        }
+                        return response.blob()
+                    })
                     .then(blob => {
                         const getReq = dbGet(id)
                         if (getReq) {
@@ -111,6 +116,10 @@ export const Task = memo<TaskProps>(function Task({
                             }
                         }
                         downloadBlob(blob, id)
+                    })
+                    .catch(error => {
+                        console.error(error)
+                        // TODO: show modal
                     })
             }
         }
