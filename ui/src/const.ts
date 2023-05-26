@@ -11,11 +11,11 @@ export enum TaskStatus {
 
 export interface Task {
     ID: string,
-    BatchSize: number,
+    BatchSize?: number,
     CreationTime: string,
-    Epochs: number,
-    ModelName: string,
-    SampleRate: number,
+    ExpiryTime?: string,
+    FailureReason?: string,
+    Name: string,
     Status: TaskStatus,
     TerminationTime?: string
     Type: TaskType

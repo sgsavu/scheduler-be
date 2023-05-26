@@ -1,5 +1,4 @@
-import { memo, useState, useEffect, useCallback, MouseEventHandler } from "react";
-import './index.css'
+import { memo, useState, useEffect, useCallback, MouseEventHandler, useMemo } from "react";
 import { Cross, Delete, Download, Tick, Train } from "../Icons";
 import { Infer } from "../Icons";
 import { DualRing } from "../Spinners";
@@ -7,6 +6,7 @@ import { Task as TaskInterface, TaskStatus, TaskType } from "../../const";
 import { formatDate } from "../../utils/formatDate";
 import { downloadBlob } from "../../utils/downloadBlob";
 import { dbGet, dbRemove, dbSet } from "../../state/localStorage";
+import './index.css'
 
 interface TaskProps {
     id: string
@@ -57,7 +57,9 @@ export const Task = memo<TaskProps>(function Task({
     onDelete,
 }) {
     const {
-        ModelName,
+        ExpiryTime,
+        FailureReason,
+        Name,
         Status,
         result: _,
         ...expandedData
@@ -65,8 +67,22 @@ export const Task = memo<TaskProps>(function Task({
 
     const [expanded, setExpanded] = useState<boolean>(false)
     const [elapsedTime, setElapsedTime] = useState<string>('')
+    const [isDownloaded, setIsDownloaded] = useState<boolean>(false)
 
     const toggleExpanded = useCallback<MouseEventHandler>(() => { setExpanded(prev => !prev) }, [])
+
+    useEffect(() => {
+        const dbReq = dbGet(id)
+
+        if (dbReq) {
+            dbReq.onsuccess = () => {
+                const { result } = dbReq.result
+                if (result) {
+                    setIsDownloaded(true)
+                }
+            }
+        }
+    }, [id])
 
     useEffect(() => {
         let interval: number
@@ -131,9 +147,30 @@ export const Task = memo<TaskProps>(function Task({
         onDelete?.(id)
     }, [id, onDelete])
 
+    const expired = useMemo(() => {
+        if (!ExpiryTime || isDownloaded) { return false }
+
+        return new Date(ExpiryTime).getTime() < Date.now()
+    }, [ExpiryTime, isDownloaded])
+
+    const colorTheme = expired ? 'expired' : statusToColor[Status]
+
     const arrowClassName = expanded ? 'arrow arrow-invert' : 'arrow'
-    const expandedClassName = 'task-expanded ' + statusToColor[Status]
-    const taskClassName = 'task-pill ' + statusToColor[Status]
+    const expandedClassName = 'task-expanded ' + colorTheme
+    const taskClassName = 'task-pill ' + colorTheme
+
+    const taskStatus = useMemo(() => {
+        if (Status === TaskStatus.FAILED) {
+            return FailureReason
+        }
+        if (expired) {
+            return 'Download has expired'
+        }
+        if (Status === TaskStatus.DONE) {
+            return 'Download available'
+        }
+        return status
+    }, [FailureReason, Status, expired, status])
 
     return (
         <div className="task">
@@ -141,7 +178,7 @@ export const Task = memo<TaskProps>(function Task({
                 <div className="task-pill-header">
                     {statusToIcon[Status]}
                     {taskTypeToIcon[data.Type]}
-                    <span>{ModelName}</span>
+                    <span>{Name}</span>
                 </div>
                 <span className={arrowClassName}></span>
             </button>
@@ -179,17 +216,21 @@ export const Task = memo<TaskProps>(function Task({
                             <div className="title">Status: {Status}</div>
                         </div>
                         <pre className="body">
-                            {status}
+                            {taskStatus}
                         </pre>
                     </div>
                     <div className="task-buttons">
                         {Status === TaskStatus.DONE && (
-                            <button className="download-icon" onClick={onDownload}>
-                                <Download/>
+                            <button
+                                className="download-icon"
+                                disabled={expired}
+                                onClick={onDownload}
+                            >
+                                <Download />
                             </button>
                         )}
-                        <button onClick={onLocalDelete}>
-                            <Delete className="delete-icon"/>
+                        <button className="delete-icon" onClick={onLocalDelete}>
+                            <Delete />
                         </button>
                     </div>
                 </div>

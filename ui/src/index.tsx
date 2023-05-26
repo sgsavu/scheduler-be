@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Infer } from './components/Infer'
 import { Navbar } from './components/Navbar'
 import { Tasks } from './components/Tasks'
 import { Train } from './components/Train'
@@ -10,7 +11,7 @@ import {
 import './index.css'
 
 const tabMap: Record<number, JSX.Element> = {
-  0: <div></div>,
+  0: <Infer></Infer>,
   1: <Train></Train>,
   2: <Tasks></Tasks>,
 }

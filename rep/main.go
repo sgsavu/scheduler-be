@@ -34,23 +34,32 @@ const (
 	WORKING   TaskStatus = "WORKING"
 )
 
+type CommonTaskPayload struct {
+	Name string `json:"name,omitempty" form:"name" binding:"required"`
+}
+
+type InferringTaskCommon struct {
+	IndexRatio float32 `json:",omitempty" form:"indexRatio" binding:"required"`
+	Pitch      int     `json:",omitempty" form:"pitch" binding:"required"`
+}
+
 type InferringTaskPayload struct {
-	Model      []*multipart.FileHeader `form:"model" binding:"required"`
-	Input      []*multipart.FileHeader `form:"input" binding:"required"`
-	IndexRatio int                     `form:"indexRatio" binding:"required"`
-	Pitch      int                     `form:"pitch" binding:"required"`
+	InferringTaskCommon
+	Model []*multipart.FileHeader `form:"model" binding:"required"`
+	Input []*multipart.FileHeader `form:"input" binding:"required"`
+	CommonTaskPayload
 }
 
 type TrainingTaskCommon struct {
-	BatchSize  int    `form:"batchSize" binding:"required"`
-	Epochs     int    `form:"epochs" binding:"required"`
-	ModelName  string `form:"modelName" binding:"required"`
-	SampleRate int    `form:"sampleRate" binding:"required"`
+	BatchSize  int `json:",omitempty" form:"batchSize" binding:"required"`
+	Epochs     int `json:",omitempty" form:"epochs" binding:"required"`
+	SampleRate int `json:",omitempty" form:"sampleRate" binding:"required"`
 }
 
 type TrainingTaskPayload struct {
 	TrainingTaskCommon
 	Dataset []*multipart.FileHeader `form:"dataset" binding:"required"`
+	CommonTaskPayload
 }
 
 type Task struct {
@@ -59,18 +68,35 @@ type Task struct {
 	Type            TaskType
 	CreationTime    time.Time
 	TerminationTime *time.Time `json:",omitempty"`
+	ExpiryTime      *time.Time `json:",omitempty"`
 	Status          TaskStatus
+	Process         *os.Process `json:"-"`
+	FailureReason   string      `json:",omitempty"`
+	Name            string      `json:",omitempty" form:"name" binding:"required"`
 	TrainingTaskCommon
-	Process       *os.Process `json:"-"`
-	FailureReason string      `json:",omitempty"`
+	InferringTaskCommon
 }
 
-const PERIODIC_PURGE_INTERVAL = 24 * time.Hour
+const PERIODIC_PURGE_INTERVAL = 1 * time.Minute
 
-var tasks = make(map[string]Task)
+var eventId = 0
 
-func handleCmdErrors(s io.ReadCloser, id string) {
-	readBytes, _ := io.ReadAll(s)
+func establishSSE(context *gin.Context) {
+	context.Writer.Header().Set("Content-Type", "text/event-stream")
+	context.Writer.Header().Set("Cache-Control", "no-cache")
+	context.Writer.Flush()
+}
+
+func sendEvent(context *gin.Context, eventName string, data []byte) {
+	context.Writer.Write([]byte(fmt.Sprintf("id: %d\n", eventId)))
+	context.Writer.Write([]byte("event: " + eventName + "\n"))
+	context.Writer.Write([]byte(fmt.Sprintf("data: %s\n\n", data)))
+	context.Writer.Flush()
+	eventId++
+}
+
+func handleCmdErrors(pipe io.ReadCloser, id string, tasks map[string]Task) {
+	readBytes, _ := io.ReadAll(pipe)
 	task := tasks[id]
 	task.FailureReason = string(readBytes)
 	tasks[id] = task
@@ -86,23 +112,18 @@ func handleCmdOutput(pipe io.ReadCloser, taskId string, listeners map[string]*gi
 		}
 
 		for _, context := range listeners {
-			context.Writer.Write([]byte(fmt.Sprintf("id: %s\n", taskId)))
-			context.Writer.Write([]byte("event: onStatus\n"))
-			context.Writer.Write([]byte(fmt.Sprintf("data: %s\n\n", string(line))))
-			context.Writer.Flush()
+			sendEvent(context, "onStatus", line)
 		}
 	}
 }
 
-func zipResult(taskId string) {
-	outputPath := taskId + "/output"
-
-	files, err := ioutil.ReadDir(outputPath)
+func zipAndCleanDirectory(path string) {
+	files, err := ioutil.ReadDir(path)
 	if err != nil {
 		panic(err)
 	}
 
-	archive, err := os.Create(outputPath + "/result.zip")
+	archive, err := os.Create(path + "/result.zip")
 	if err != nil {
 		panic(err)
 	}
@@ -111,7 +132,7 @@ func zipResult(taskId string) {
 	zipWriter := zip.NewWriter(archive)
 
 	for _, file := range files {
-		filePath := outputPath + "/" + file.Name()
+		filePath := path + "/" + file.Name()
 
 		f1, err := os.Open(filePath)
 		if err != nil {
@@ -133,32 +154,77 @@ func zipResult(taskId string) {
 	zipWriter.Close()
 }
 
-func trainPipe(c *gin.Context) {
-	var trainingTaskPayload TrainingTaskPayload
+func setupTerminationRoutine(cmd *exec.Cmd, taskId string, tasks map[string]Task) {
+	err := cmd.Wait()
 
-	parseRequestError := c.ShouldBind(&trainingTaskPayload)
-	if parseRequestError != nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, parseRequestError.Error())
+	timeNow := time.Now()
+	expiryTime := timeNow.Add(PERIODIC_PURGE_INTERVAL)
+	task := tasks[taskId]
+	task.TerminationTime = &timeNow
+	task.ExpiryTime = &expiryTime
+
+	if task.Status == CANCELLED {
+		purgeTask(taskId, tasks)
 		return
 	}
 
-	taskId := uuid.New().String()
-	dataset := trainingTaskPayload.Dataset
+	if err != nil {
+		task.Status = FAILED
+	} else {
+		task.Status = DONE
+		zipAndCleanDirectory(taskId + "/output")
+	}
 
-	for index, file := range dataset {
+	tasks[taskId] = task
+
+	for _, context := range task.Listeners {
+		data, _ := json.Marshal(gin.H{task.ID: task})
+		sendEvent(context, "onChange", data)
+	}
+
+	if task.Status == FAILED {
+		purgeTask(taskId, tasks)
+		return
+	}
+
+	removalErr := os.RemoveAll(taskId + "/input")
+	if removalErr != nil {
+		fmt.Println(removalErr)
+	}
+}
+
+func saveFormFiles(c *gin.Context, dirPath string, files []*multipart.FileHeader) error {
+	for index, file := range files {
 		fileExtension := filepath.Ext(file.Filename)
 		if fileExtension != ".wav" {
 			continue
 		}
 
-		savePath := fmt.Sprintf("%s/input/%d%s", taskId, index, fileExtension)
+		savePath := fmt.Sprintf("%s/%d%s", dirPath, index, fileExtension)
 
 		err := c.SaveUploadedFile(file, savePath)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, err.Error())
-			return
+			return err
 		}
 	}
+
+	return nil
+}
+
+func trainPipe(context *gin.Context, tasks map[string]Task) {
+	var trainTaskPayload TrainingTaskPayload
+
+	parseRequestError := context.ShouldBind(&trainTaskPayload)
+	if parseRequestError != nil {
+		context.AbortWithStatusJSON(http.StatusInternalServerError, parseRequestError.Error())
+		return
+	}
+
+	taskId := uuid.New().String()
+	dataset := trainTaskPayload.Dataset
+
+	saveFormFiles(context, taskId+"/input", dataset)
 
 	cmd := exec.Command("python", "../scripts/test.py", taskId)
 	stdout, stdOutErr := cmd.StdoutPipe()
@@ -171,20 +237,21 @@ func trainPipe(c *gin.Context) {
 	}
 
 	tasks[taskId] = Task{
-		CreationTime:       time.Now(),
-		Status:             WORKING,
 		ID:                 taskId,
 		Listeners:          make(map[string]*gin.Context),
-		TrainingTaskCommon: trainingTaskPayload.TrainingTaskCommon,
+		CreationTime:       time.Now(),
+		Status:             WORKING,
 		Type:               TRAINING,
+		Name:               trainTaskPayload.Name,
+		TrainingTaskCommon: trainTaskPayload.TrainingTaskCommon,
 	}
 
 	go handleCmdOutput(stdout, taskId, tasks[taskId].Listeners)
-	go handleCmdErrors(stderr, taskId)
+	go handleCmdErrors(stderr, taskId, tasks)
 
 	startCommandError := cmd.Start()
 	if startCommandError != nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, startCommandError.Error())
+		context.AbortWithStatusJSON(http.StatusInternalServerError, startCommandError.Error())
 		return
 	}
 
@@ -192,85 +259,88 @@ func trainPipe(c *gin.Context) {
 	task.Process = cmd.Process
 	tasks[taskId] = task
 
-	c.JSON(http.StatusOK, taskId)
+	go setupTerminationRoutine(cmd, taskId, tasks)
 
-	time.AfterFunc(1*time.Second, func() {
-		err := cmd.Wait()
-
-		timeNow := time.Now()
-		task := tasks[taskId]
-		task.TerminationTime = &timeNow
-
-		if task.Status == CANCELLED {
-			purgeTask(taskId)
-			return
-		}
-
-		if err != nil {
-			task.Status = FAILED
-		} else {
-			task.Status = DONE
-			zipResult(taskId)
-		}
-
-		tasks[taskId] = task
-
-		for _, context := range task.Listeners {
-			context.Writer.Write([]byte(fmt.Sprintf("id: %s\n", task.ID)))
-			context.Writer.Write([]byte("event: onChange\n"))
-			data, _ := json.Marshal(gin.H{task.ID: task})
-			context.Writer.Write([]byte(fmt.Sprintf("data: %s\n\n", data)))
-			context.Writer.Flush()
-		}
-
-		if task.Status == FAILED {
-			purgeTask(taskId)
-			return
-		}
-
-		removalErr := os.RemoveAll(taskId + "/input")
-		if removalErr != nil {
-			fmt.Println(err)
-		}
-	})
+	context.JSON(http.StatusOK, taskId)
 }
 
-func inferPipe(c *gin.Context) {
-	c.JSON(http.StatusOK, "Success")
+func inferPipe(context *gin.Context, tasks map[string]Task) {
+	var inferTaskPayload InferringTaskPayload
+
+	parseRequestError := context.ShouldBind(&inferTaskPayload)
+	if parseRequestError != nil {
+		context.AbortWithStatusJSON(http.StatusInternalServerError, parseRequestError.Error())
+		return
+	}
+
+	taskId := uuid.New().String()
+	dataset := inferTaskPayload.Input
+
+	saveFormFiles(context, taskId+"/input", dataset)
+
+	cmd := exec.Command("python", "../scripts/test.py", taskId)
+	stdout, stdOutErr := cmd.StdoutPipe()
+	if stdOutErr != nil {
+		fmt.Println(stdOutErr)
+	}
+	stderr, stdErrErr := cmd.StderrPipe()
+	if stdErrErr != nil {
+		fmt.Println(stdErrErr)
+	}
+
+	tasks[taskId] = Task{
+		ID:                  taskId,
+		Listeners:           make(map[string]*gin.Context),
+		CreationTime:        time.Now(),
+		Status:              WORKING,
+		Type:                INFERRING,
+		Name:                inferTaskPayload.Name,
+		InferringTaskCommon: inferTaskPayload.InferringTaskCommon,
+	}
+
+	go handleCmdOutput(stdout, taskId, tasks[taskId].Listeners)
+	go handleCmdErrors(stderr, taskId, tasks)
+
+	startCommandError := cmd.Start()
+	if startCommandError != nil {
+		context.AbortWithStatusJSON(http.StatusInternalServerError, startCommandError.Error())
+		return
+	}
+
+	task := tasks[taskId]
+	task.Process = cmd.Process
+	tasks[taskId] = task
+
+	go setupTerminationRoutine(cmd, taskId, tasks)
+
+	context.JSON(http.StatusOK, taskId)
 }
 
-func subToAll(context *gin.Context) {
-	context.Writer.Header().Set("Content-Type", "text/event-stream")
-	context.Writer.Header().Set("Cache-Control", "no-cache")
-	context.Writer.Flush()
+func subToAll(context *gin.Context, tasks map[string]Task) {
+	establishSSE(context)
 
 	connId := uuid.New().String()
 
 	for _, task := range tasks {
-		subscribersMap := task.Listeners
-		subscribersMap[connId] = context
+		task.Listeners[connId] = context
 	}
 
-	context.Writer.Write([]byte(fmt.Sprintf("id: %s\n", "initial")))
-	context.Writer.Write([]byte("event: onChange\n"))
 	data, _ := json.Marshal(tasks)
-	context.Writer.Write([]byte(fmt.Sprintf("data: %s\n\n", data)))
-	context.Writer.Flush()
+	sendEvent(context, "onChange", data)
 
 	for {
 		select {
 		case <-context.Request.Context().Done():
 			for _, task := range tasks {
-				subscribersMap := task.Listeners
-				delete(subscribersMap, connId)
-
+				delete(task.Listeners, connId)
 			}
+
 			return
 		}
 	}
 }
 
-func subToTask(context *gin.Context) {
+func subToTask(context *gin.Context, tasks map[string]Task) {
 	taskId := context.Param("id")
 
 	task, exists := tasks[taskId]
@@ -280,9 +350,7 @@ func subToTask(context *gin.Context) {
 		return
 	}
 
-	context.Writer.Header().Set("Content-Type", "text/event-stream")
-	context.Writer.Header().Set("Cache-Control", "no-cache")
-	context.Writer.Flush()
+	establishSSE(context)
 
 	connId := uuid.New().String()
 	subscribersMap := task.Listeners
@@ -297,7 +365,7 @@ func subToTask(context *gin.Context) {
 	}
 }
 
-func getResult(context *gin.Context) {
+func getResult(context *gin.Context, tasks map[string]Task) {
 	taskId := context.Param("id")
 
 	task, exists := tasks[taskId]
@@ -316,7 +384,7 @@ func getResult(context *gin.Context) {
 	context.File(taskId + "/output" + "/result.zip")
 }
 
-func purgeTask(taskId string) {
+func purgeTask(taskId string, tasks map[string]Task) {
 	delete(tasks, taskId)
 
 	err := os.RemoveAll(taskId)
@@ -325,18 +393,18 @@ func purgeTask(taskId string) {
 	}
 }
 
-func periodicPurge() {
+func periodicPurge(tasks map[string]Task) {
 	for {
 		for taskId, task := range tasks {
 			if task.Status == DONE {
-				purgeTask(taskId)
+				purgeTask(taskId, tasks)
 			}
 		}
 		time.Sleep(PERIODIC_PURGE_INTERVAL)
 	}
 }
 
-func deleteTask(context *gin.Context) {
+func deleteTask(context *gin.Context, tasks map[string]Task) {
 	taskId := context.Param("id")
 
 	task, exists := tasks[taskId]
@@ -357,36 +425,50 @@ func deleteTask(context *gin.Context) {
 		return
 	}
 
-	purgeTask(taskId)
+	purgeTask(taskId, tasks)
 	context.JSON(http.StatusOK, "Success")
 }
 
 func main() {
+	var tasks = make(map[string]Task)
+
 	router := gin.Default()
 
 	v1 := router.Group("/v1")
 	{
-		tasks := v1.Group("/tasks")
+		tasksGroup := v1.Group("/tasks")
 		{
-			tasks.GET("", subToAll)
-			tasks.GET("/:id")
-			tasks.DELETE("/:id", deleteTask)
-			tasks.GET("/:id/status", subToTask)
-			tasks.GET("/:id/result", getResult)
+			tasksGroup.GET("", func(ctx *gin.Context) {
+				subToAll(ctx, tasks)
+			})
+			tasksGroup.GET("/:id")
+			tasksGroup.DELETE("/:id", func(ctx *gin.Context) {
+				deleteTask(ctx, tasks)
+			})
+			tasksGroup.GET("/:id/status", func(ctx *gin.Context) {
+				subToTask(ctx, tasks)
+			})
+			tasksGroup.GET("/:id/result", func(ctx *gin.Context) {
+				getResult(ctx, tasks)
+			})
 		}
 
 		infer := v1.Group("/infer")
 		{
-			infer.POST("/", inferPipe)
+			infer.POST("", func(ctx *gin.Context) {
+				inferPipe(ctx, tasks)
+			})
 		}
 
 		train := v1.Group("/train")
 		{
-			train.POST("/", trainPipe)
+			train.POST("", func(ctx *gin.Context) {
+				trainPipe(ctx, tasks)
+			})
 		}
 	}
 
-	go periodicPurge()
+	go periodicPurge(tasks)
 
 	router.Use(static.Serve("/", static.LocalFile("../ui/dist", false)))
 	router.Run()
