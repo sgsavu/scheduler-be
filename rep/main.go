@@ -112,7 +112,8 @@ func handleCmdOutput(pipe io.ReadCloser, taskId string, listeners map[string]*gi
 		}
 
 		for _, context := range listeners {
-			sendEvent(context, "onStatus", line)
+			data, _ := json.Marshal(gin.H{taskId: string(line)})
+			sendEvent(context, "onStatus", data)
 		}
 	}
 }

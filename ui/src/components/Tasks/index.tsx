@@ -40,10 +40,17 @@ export const Tasks = memo(function Tasks() {
             
         })
 
-        eventSource.current.addEventListener('onStatus', ({ lastEventId, data }: MessageEvent<string>) => {
+        eventSource.current.addEventListener('onStatus', ({ data }: MessageEvent<string>) => {
+            const parsedData = JSON.parse(data) as Record<string, string>
+            const entries = Object.entries(parsedData)
+
             setStatus(prevStatus => {
                 const newStatus = { ...prevStatus }
-                newStatus[lastEventId] = data
+
+                entries.forEach(([key, value]) => {
+                    newStatus[key] = value
+                })
+
                 return newStatus
             })
         })
