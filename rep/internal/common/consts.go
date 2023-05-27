@@ -65,3 +65,11 @@ type TrainingTaskPayload struct {
 	Dataset []*multipart.FileHeader `form:"dataset" binding:"required"`
 	CommonTaskPayload
 }
+
+const TASKS_DIR = "tasks"
+const TASK_OUTPUT = "output"
+const TASK_INPUT = "input"
+const TASK_MODEL = "model"
+
+var ALLOWED_AUDIO_FORMATS = []string{".wav"}
+var ALLOWED_MODEL_FORMATS = []string{".pth", ".index"}

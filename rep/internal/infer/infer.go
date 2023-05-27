@@ -21,9 +21,17 @@ func InferPipe(context *gin.Context, tasks map[string]common.Task) {
 	}
 
 	taskId := uuid.New().String()
-	dataset := inferTaskPayload.Input
+	input := inferTaskPayload.Input
+	model := inferTaskPayload.Model
 
-	common.SaveFormFiles(context, taskId+"/input", dataset)
+	errSavingInput := common.SaveFormFiles(context, common.TASKS_DIR+"/"+taskId+"/"+common.TASK_INPUT, input, common.ALLOWED_AUDIO_FORMATS)
+	if errSavingInput != nil {
+		return
+	}
+	errSavingModel := common.SaveFormFiles(context, common.TASKS_DIR+"/"+taskId+"/"+common.TASK_MODEL, model, common.ALLOWED_MODEL_FORMATS)
+	if errSavingModel != nil {
+		return
+	}
 
 	cmd := exec.Command("python", "../scripts/test.py", taskId)
 	stdout, stdOutErr := cmd.StdoutPipe()

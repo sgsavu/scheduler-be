@@ -4,8 +4,8 @@ import shutil
 import sys
 
 taskId = sys.argv[1]
-IN_PATH = "../rep/" + taskId + "/input/"
-OUT_PATH = "../rep/" + taskId + "/output/"
+IN_PATH = "../rep/tasks/" + taskId + "/input/"
+OUT_PATH = "../rep/tasks/" + taskId + "/output/"
 
 def test():
     if not os.path.exists(IN_PATH):

@@ -12,6 +12,7 @@ import (
 )
 
 func TrainPipe(context *gin.Context, tasks map[string]common.Task) {
+
 	var trainTaskPayload common.TrainingTaskPayload
 
 	parseRequestError := context.ShouldBind(&trainTaskPayload)
@@ -23,7 +24,10 @@ func TrainPipe(context *gin.Context, tasks map[string]common.Task) {
 	taskId := uuid.New().String()
 	dataset := trainTaskPayload.Dataset
 
-	common.SaveFormFiles(context, taskId+"/input", dataset)
+	err := common.SaveFormFiles(context, common.TASKS_DIR+"/"+taskId+"/"+common.TASK_INPUT, dataset, common.ALLOWED_AUDIO_FORMATS)
+	if err != nil {
+		return
+	}
 
 	cmd := exec.Command("python", "../scripts/test.py", taskId)
 	stdout, stdOutErr := cmd.StdoutPipe()

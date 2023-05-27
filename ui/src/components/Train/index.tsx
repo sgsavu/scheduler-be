@@ -1,5 +1,5 @@
-import { memo, useState, useCallback, FormEventHandler } from "react"
-import { useTimeoutMessageQueue } from "../../utils/useTimeoutMessageQueue";
+import { memo } from "react"
+import { useForm } from "../../utils/useForm";
 import { Info } from "../Icons";
 import './index.css'
 
@@ -16,55 +16,22 @@ in faster training, but a smaller batch size will result in more accurate traini
 As a rule of thumb you should divide your GPU's VRAM by 1.2 and the resulting 
 whole number is your batch size. Example: 12GB VRAM / 1.2 = 10.`
 
+const TRAIN_URL = '/v1/train'
+
 export const Train = memo(function Train() {
-    const [status, setStatus] = useState<string>('')
-    const [errors, errorTimeout, pushError, popError] = useTimeoutMessageQueue()
-    const [loading, setLoading] = useState<boolean>(false)
-
-    const onTrain = useCallback<FormEventHandler<HTMLFormElement>>(e => {
-        e.preventDefault()
-        setLoading(true)
-
-        const formData = new FormData(e.target as HTMLFormElement)
-
-        for (const [key, value] of formData.entries()) {
-            if (key === 'dataset') {
-                const dataset = value as File
-
-                if (dataset.size === 0) {
-                    pushError('No files selected')
-                    return
-                }
-                continue
-            }
-
-            if (value === '') {
-                pushError(`Missing value for "${key}"`)
-                return
-            }
-        }
-
-        fetch('/v1/train', {
-            method: 'POST',
-            body: formData
-        })
-            .then(res => {
-                const { ok, status, statusText } = res
-                if (!ok) {
-                    throw new Error(`${status}: ${statusText}`)
-                }
-                return res.text()
-            })
-            .then(data => setStatus(`Task successfully scheduled with id: ${data}`))
-            .catch(err => pushError(err.message))
-            .finally(() => setLoading(false))
-
-    }, [pushError])
+    const {
+        status,
+        errors,
+        errorTimeout,
+        popError,
+        loading,
+        onSubmit
+    } = useForm(TRAIN_URL)
 
     return (
         <>
             <h1>Train a model</h1>
-            <form onSubmit={onTrain} className="form">
+            <form onSubmit={onSubmit} className="form">
                 <div className="row">
                     <label>Task name</label>
                     <input defaultValue="test" name="name"></input>

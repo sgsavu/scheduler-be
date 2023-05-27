@@ -9,11 +9,33 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SaveFormFiles(c *gin.Context, dirPath string, files []*multipart.FileHeader) error {
+func contains(allowedExtensions []string, extension string) bool {
+	for _, allowedExtension := range allowedExtensions {
+		if extension == allowedExtension {
+			return true
+		}
+	}
+
+	return false
+}
+
+func SaveFormFiles(c *gin.Context, dirPath string, files []*multipart.FileHeader, allowedExtensions []string) error {
+	totalSize := int64(0)
+
 	for index, file := range files {
 		fileExtension := filepath.Ext(file.Filename)
-		if fileExtension != ".wav" {
+
+		fmt.Println(file.Filename, file.Size)
+
+		if !contains(allowedExtensions, fileExtension) {
 			continue
+		}
+
+		totalSize += file.Size
+
+		if totalSize > getMaxUploadSize() {
+			c.AbortWithStatusJSON(http.StatusBadRequest, "Files too large")
+			return gin.Error{}
 		}
 
 		savePath := fmt.Sprintf("%s/%d%s", dirPath, index, fileExtension)

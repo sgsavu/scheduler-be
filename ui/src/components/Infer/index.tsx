@@ -1,51 +1,21 @@
-import { memo, useState, useCallback, FormEventHandler } from "react"
-import { useTimeoutMessageQueue } from "../../utils/useTimeoutMessageQueue";
+import { memo } from "react"
 import { Info } from "../Icons";
+import { useForm } from "../../utils/useForm";
 
 const INDEX_RATIO_TOOLTIP =
     `This value determines how much of the index feature will be used in the model.`
 
+const INFER_URL = '/v1/infer'
+
 export const Infer = memo(function Infer() {
-    const [status, setStatus] = useState<string>('')
-    const [errors, errorTimeout, pushError, popError] = useTimeoutMessageQueue()
-
-    const onSubmit = useCallback<FormEventHandler<HTMLFormElement>>(e => {
-        e.preventDefault()
-
-        const formData = new FormData(e.target as HTMLFormElement)
-
-        for (const [key, value] of formData.entries()) {
-            if (key === 'model' || key === 'input') {
-                const dataset = value as File
-
-                if (dataset.size === 0) {
-                    pushError('No files selected')
-                    return
-                }
-                continue
-            }
-
-            if (value === '') {
-                pushError(`Missing value for "${key}"`)
-                return
-            }
-        }
-
-        fetch('/v1/infer', {
-            method: 'POST',
-            body: formData
-        })
-            .then(res => {
-                const { ok, status, statusText } = res
-                if (!ok) {
-                    throw new Error(`${status}: ${statusText}`)
-                }
-                return res.text()
-            })
-            .then(data => setStatus(`Task successfully scheduled with id: ${data}`))
-            .catch(err => pushError(err.message))
-
-    }, [pushError])
+    const {
+        status,
+        errors,
+        errorTimeout,
+        popError,
+        loading,
+        onSubmit
+    } = useForm(INFER_URL)
 
     return (
         <>
@@ -114,8 +84,8 @@ export const Infer = memo(function Infer() {
                 </div>
 
                 <div className="submit-button-container">
-                    <button type="submit">
-                        Infer
+                    <button disabled={loading} type="submit">
+                        {loading ? 'Loading...' : 'Infer'}
                     </button>
                 </div>
 

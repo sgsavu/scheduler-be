@@ -4,26 +4,15 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
-func getPeriodicPurge() time.Duration {
-	periodicPurge := os.Getenv("PERIODIC_PURGE_INTERVAL")
-	Atoi, err := strconv.Atoi(periodicPurge)
-	if err != nil {
-		fmt.Println(err)
-		return 0
-	}
-	return time.Duration(Atoi) * time.Millisecond
-}
-
 func purgeTask(taskId string, tasks map[string]Task) {
 	delete(tasks, taskId)
 
-	err := os.RemoveAll(taskId)
+	err := os.RemoveAll(TASKS_DIR + "/" + taskId)
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -36,7 +25,7 @@ func PeriodicPurge(tasks map[string]Task) {
 				purgeTask(taskId, tasks)
 			}
 		}
-		time.Sleep(getPeriodicPurge())
+		time.Sleep(getPeriodicPurgeInterval())
 	}
 }
 

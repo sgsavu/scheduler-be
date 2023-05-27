@@ -22,5 +22,5 @@ func GetResult(context *gin.Context, tasks map[string]Task) {
 	}
 
 	context.Writer.Header().Set("Content-Type", "application/zip")
-	context.File(taskId + "/output" + "/result.zip")
+	context.File(TASKS_DIR + "/" + taskId + "/" + TASK_OUTPUT + "/result.zip")
 }

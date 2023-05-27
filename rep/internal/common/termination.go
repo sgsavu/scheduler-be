@@ -14,7 +14,7 @@ func SetupTerminationRoutine(cmd *exec.Cmd, taskId string, tasks map[string]Task
 	err := cmd.Wait()
 
 	timeNow := time.Now()
-	expiryTime := timeNow.Add(getPeriodicPurge())
+	expiryTime := timeNow.Add(getPeriodicPurgeInterval())
 	task := tasks[taskId]
 	task.TerminationTime = &timeNow
 	task.ExpiryTime = &expiryTime
@@ -28,7 +28,7 @@ func SetupTerminationRoutine(cmd *exec.Cmd, taskId string, tasks map[string]Task
 		task.Status = FAILED
 	} else {
 		task.Status = DONE
-		ZipAndCleanDirectory(taskId + "/output")
+		ZipAndCleanDirectory(TASKS_DIR + "/" + taskId + "/" + TASK_OUTPUT)
 	}
 
 	tasks[taskId] = task
@@ -43,8 +43,15 @@ func SetupTerminationRoutine(cmd *exec.Cmd, taskId string, tasks map[string]Task
 		return
 	}
 
-	removalErr := os.RemoveAll(taskId + "/input")
+	removalErr := os.RemoveAll(TASKS_DIR + "/" + taskId + "/" + TASK_INPUT)
 	if removalErr != nil {
 		fmt.Println(removalErr)
+	}
+
+	if task.Type == INFERRING {
+		removalErr = os.RemoveAll(TASKS_DIR + "/" + taskId + "/" + TASK_MODEL)
+		if removalErr != nil {
+			fmt.Println(removalErr)
+		}
 	}
 }
