@@ -1,8 +1,8 @@
 import { memo, useEffect, useState, useRef, useCallback } from "react"
 import { Task } from "../Task";
+import { dbGetAll, dbSet } from "../../state/localStorage";
 import { Task as TaskInterface } from "../../const";
 import "./index.css"
-import { dbGetAll, dbSet } from "../../state/localStorage";
 
 export const Tasks = memo(function Tasks() {
     const [tasks, setTasks] = useState<Record<string, TaskInterface>>({})
@@ -10,18 +10,14 @@ export const Tasks = memo(function Tasks() {
     const eventSource = useRef<EventSource>()
 
     useEffect(() => {
-
-        const getAllReq = dbGetAll()
-
-        if (getAllReq) {
-            getAllReq.onsuccess = () => {
-                const tasksFromStorage = getAllReq.result.reduce((acc: Record<string, TaskInterface>, curr: TaskInterface) => {
+        dbGetAll()
+            .then(tasks => {
+                const tasksFromStorage = tasks.reduce((acc: Record<string, TaskInterface>, curr: TaskInterface) => {
                     acc[curr.ID] = curr
                     return acc
                 }, {})
                 setTasks(tasksFromStorage)
-            }
-        }
+            })
 
         eventSource.current = new EventSource(`/v1/tasks`)
         eventSource.current.addEventListener('onChange', ({ data }: MessageEvent<string>) => {
@@ -37,7 +33,7 @@ export const Tasks = memo(function Tasks() {
 
                 return newTasks
             })
-            
+
         })
 
         eventSource.current.addEventListener('onStatus', ({ data }: MessageEvent<string>) => {

@@ -19,9 +19,11 @@ whole number is your batch size. Example: 12GB VRAM / 1.2 = 10.`
 export const Train = memo(function Train() {
     const [status, setStatus] = useState<string>('')
     const [errors, errorTimeout, pushError, popError] = useTimeoutMessageQueue()
+    const [loading, setLoading] = useState<boolean>(false)
 
     const onTrain = useCallback<FormEventHandler<HTMLFormElement>>(e => {
         e.preventDefault()
+        setLoading(true)
 
         const formData = new FormData(e.target as HTMLFormElement)
 
@@ -55,6 +57,7 @@ export const Train = memo(function Train() {
             })
             .then(data => setStatus(`Task successfully scheduled with id: ${data}`))
             .catch(err => pushError(err.message))
+            .finally(() => setLoading(false))
 
     }, [pushError])
 
@@ -125,8 +128,8 @@ export const Train = memo(function Train() {
                 </div>
 
                 <div className="submit-button-container">
-                    <button type="submit">
-                        Train
+                    <button disabled={loading} type="submit">
+                        {loading ? 'Loading...' : 'Train'}
                     </button>
                 </div>
 

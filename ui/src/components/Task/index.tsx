@@ -1,11 +1,11 @@
 import { memo, useState, useEffect, useCallback, MouseEventHandler, useMemo } from "react";
+import { Task as TaskInterface, TaskStatus, TaskType } from "../../const";
+import { dbGet, dbRemove, dbSet } from "../../state/localStorage";
+import { downloadBlob } from "../../utils/downloadBlob";
+import { formatDate } from "../../utils/formatDate";
 import { Cross, Delete, Download, Tick, Train } from "../Icons";
 import { Infer } from "../Icons";
 import { DualRing } from "../Spinners";
-import { Task as TaskInterface, TaskStatus, TaskType } from "../../const";
-import { formatDate } from "../../utils/formatDate";
-import { downloadBlob } from "../../utils/downloadBlob";
-import { dbGet, dbRemove, dbSet } from "../../state/localStorage";
 import './index.css'
 
 interface TaskProps {
@@ -72,16 +72,12 @@ export const Task = memo<TaskProps>(function Task({
     const toggleExpanded = useCallback<MouseEventHandler>(() => { setExpanded(prev => !prev) }, [])
 
     useEffect(() => {
-        const dbReq = dbGet(id)
-
-        if (dbReq) {
-            dbReq.onsuccess = () => {
-                const { result } = dbReq.result
+        dbGet(id)
+            .then(({ result }) => {
                 if (result) {
                     setIsDownloaded(true)
                 }
-            }
-        }
+            })
     }, [id])
 
     useEffect(() => {
@@ -101,11 +97,9 @@ export const Task = memo<TaskProps>(function Task({
     }, [data.CreationTime, data.TerminationTime])
 
     const onDownload = useCallback(() => {
-        const dbReq = dbGet(id)
-
-        if (dbReq) {
-            dbReq.onsuccess = () => {
-                const { result } = dbReq.result
+        dbGet(id)
+            .then(task => {
+                const { result } = task
 
                 if (result) {
                     downloadBlob(result, id)
@@ -120,25 +114,19 @@ export const Task = memo<TaskProps>(function Task({
                         return response.blob()
                     })
                     .then(blob => {
-                        const getReq = dbGet(id)
-                        if (getReq) {
-                            getReq.onsuccess = () => {
-                                const setReq = dbSet({ ...getReq.result, result: blob })
-                                if (setReq) {
-                                    setReq.onsuccess = () => {
+                        dbGet(id)
+                            .then(task => {
+                                dbSet({ ...task, result: blob })
+                                    .then(() => {
                                         fetch(`v1/tasks/${id}`, { method: 'DELETE' })
-                                    }
-                                }
-                            }
-                        }
+                                    })
+                            })
                         downloadBlob(blob, id)
                     })
                     .catch(error => {
-                        console.error(error)
-                        // TODO: show modal
+                        alert('Failed to download.' + error)
                     })
-            }
-        }
+            })
     }, [id])
 
     const onLocalDelete = useCallback(() => {
