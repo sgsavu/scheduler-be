@@ -2,30 +2,42 @@ package train
 
 import (
 	"fmt"
-	"net/http"
 	"os/exec"
 	"rep/internal/common"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
 
-func TrainPipe(context *gin.Context, tasks map[string]common.Task) {
+func TrainPipe(context *fiber.Ctx, tasks map[string]common.Task) {
 
 	var trainTaskPayload common.TrainingTaskPayload
 
-	parseRequestError := context.ShouldBind(&trainTaskPayload)
+	parseRequestError := context.BodyParser(&trainTaskPayload)
 	if parseRequestError != nil {
-		context.AbortWithStatusJSON(http.StatusInternalServerError, parseRequestError.Error())
+		context.SendStatus(500)
 		return
 	}
 
-	taskId := uuid.New().String()
-	dataset := trainTaskPayload.Dataset
-
-	err := common.SaveFormFiles(context, common.TASKS_DIR+"/"+taskId+"/"+common.TASK_INPUT, dataset, common.ALLOWED_AUDIO_FORMATS)
+	form, err := context.MultipartForm()
 	if err != nil {
+		context.SendStatus(500)
+		return
+	}
+
+	dataset := form.File["dataset"]
+
+	taskId := uuid.New().String()
+
+	if len(dataset) == 0 {
+		context.SendStatus(400)
+		return
+	}
+
+	err2 := common.SaveFormFiles(context, common.TASKS_DIR+"/"+taskId+"/"+common.TASK_INPUT, dataset, common.ALLOWED_AUDIO_FORMATS)
+	if err2 != nil {
+		context.SendStatus(500)
 		return
 	}
 
@@ -41,7 +53,7 @@ func TrainPipe(context *gin.Context, tasks map[string]common.Task) {
 
 	tasks[taskId] = common.Task{
 		ID:                 taskId,
-		Listeners:          make(map[string]*gin.Context),
+		Channel:            make(chan common.TaskSSE),
 		CreationTime:       time.Now(),
 		Status:             common.WORKING,
 		Type:               common.TRAINING,
@@ -49,12 +61,12 @@ func TrainPipe(context *gin.Context, tasks map[string]common.Task) {
 		TrainingTaskCommon: trainTaskPayload.TrainingTaskCommon,
 	}
 
-	go common.HandleCmdOutput(stdout, taskId, tasks[taskId].Listeners)
+	go common.HandleCmdOutput(stdout, taskId, tasks[taskId].Channel)
 	go common.HandleCmdErrors(stderr, taskId, tasks)
 
 	startCommandError := cmd.Start()
 	if startCommandError != nil {
-		context.AbortWithStatusJSON(http.StatusInternalServerError, startCommandError.Error())
+		context.SendStatus(500)
 		return
 	}
 
@@ -64,5 +76,6 @@ func TrainPipe(context *gin.Context, tasks map[string]common.Task) {
 
 	go common.SetupTerminationRoutine(cmd, taskId, tasks)
 
-	context.JSON(http.StatusOK, taskId)
+	context.Status(200)
+	context.SendString(taskId)
 }

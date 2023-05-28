@@ -4,8 +4,6 @@ import (
 	"mime/multipart"
 	"os"
 	"time"
-
-	"github.com/gin-gonic/gin"
 )
 
 type TaskType string
@@ -27,9 +25,15 @@ type CommonTaskPayload struct {
 	Name string `json:"name,omitempty" form:"name" binding:"required"`
 }
 
+type TaskSSE struct {
+	ID    string `json:"id"`
+	Data  []byte `json:"status"`
+	Event string `json:"event"`
+}
+
 type Task struct {
 	ID              string
-	Listeners       map[string]*gin.Context `json:"-"`
+	Channel         chan TaskSSE `json:"-"`
 	Type            TaskType
 	CreationTime    time.Time
 	TerminationTime *time.Time `json:",omitempty"`

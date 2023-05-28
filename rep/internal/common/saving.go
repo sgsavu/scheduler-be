@@ -3,10 +3,10 @@ package common
 import (
 	"fmt"
 	"mime/multipart"
-	"net/http"
+	"os"
 	"path/filepath"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 )
 
 func contains(allowedExtensions []string, extension string) bool {
@@ -19,13 +19,11 @@ func contains(allowedExtensions []string, extension string) bool {
 	return false
 }
 
-func SaveFormFiles(c *gin.Context, dirPath string, files []*multipart.FileHeader, allowedExtensions []string) error {
+func SaveFormFiles(c *fiber.Ctx, dirPath string, files []*multipart.FileHeader, allowedExtensions []string) error {
 	totalSize := int64(0)
 
 	for index, file := range files {
 		fileExtension := filepath.Ext(file.Filename)
-
-		fmt.Println(file.Filename, file.Size)
 
 		if !contains(allowedExtensions, fileExtension) {
 			continue
@@ -34,15 +32,17 @@ func SaveFormFiles(c *gin.Context, dirPath string, files []*multipart.FileHeader
 		totalSize += file.Size
 
 		if totalSize > getMaxUploadSize() {
-			c.AbortWithStatusJSON(http.StatusBadRequest, "Files too large")
-			return gin.Error{}
+			c.SendStatus(513)
+			return &fiber.Error{}
 		}
 
 		savePath := fmt.Sprintf("%s/%d%s", dirPath, index, fileExtension)
+		os.MkdirAll(dirPath, os.ModePerm)
 
-		err := c.SaveUploadedFile(file, savePath)
+		err := c.SaveFile(file, savePath)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, err.Error())
+			fmt.Println(err)
+			c.SendStatus(500)
 			return err
 		}
 	}

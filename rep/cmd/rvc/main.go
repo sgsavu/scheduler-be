@@ -2,56 +2,72 @@ package main
 
 import (
 	common "rep/internal/common"
-	infer "rep/internal/infer"
-	train "rep/internal/train"
+	"rep/internal/infer"
+	"rep/internal/train"
 
-	"github.com/gin-contrib/static"
-	"github.com/gin-gonic/gin"
+	"github.com/goccy/go-json"
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
 )
 
 func main() {
 	var tasks = make(map[string]common.Task)
 
-	router := gin.Default()
-
-	v1 := router.Group("/v1")
-	{
-		tasksGroup := v1.Group("/tasks")
-		{
-			tasksGroup.GET("", func(ctx *gin.Context) {
-				common.SubToAll(ctx, tasks)
-			})
-			tasksGroup.GET("/:id")
-			tasksGroup.DELETE("/:id", func(ctx *gin.Context) {
-				common.DeleteTask(ctx, tasks)
-			})
-			tasksGroup.GET("/:id/status", func(ctx *gin.Context) {
-				common.SubToTask(ctx, tasks)
-			})
-			tasksGroup.GET("/:id/result", func(ctx *gin.Context) {
-				common.GetResult(ctx, tasks)
-			})
-		}
-
-		inferGroup := v1.Group("/infer")
-		{
-			inferGroup.POST("", func(ctx *gin.Context) {
-				infer.InferPipe(ctx, tasks)
-			})
-		}
-
-		trainGroup := v1.Group("/train")
-		{
-			trainGroup.POST("", func(ctx *gin.Context) {
-				train.TrainPipe(ctx, tasks)
-			})
-		}
-	}
-
 	common.LoadEnvVars()
-
 	go common.PeriodicPurge(tasks)
 
-	router.Use(static.Serve("/", static.LocalFile("../ui/dist", false)))
-	router.Run()
+	app := fiber.New(fiber.Config{
+		JSONEncoder: json.Marshal,
+		JSONDecoder: json.Unmarshal,
+		BodyLimit:   100 * 1024 * 1024,
+	})
+
+	app.Use(cors.New(cors.Config{
+		AllowOrigins:     "*",
+		AllowHeaders:     "Cache-Control",
+		AllowCredentials: true,
+	}))
+
+	app.Static("/", "../ui/dist")
+
+	app.Route("/v1", func(app fiber.Router) {
+		app.Post("/infer", func(ctx *fiber.Ctx) error {
+			infer.InferPipe(ctx, tasks)
+			return nil
+		})
+
+		app.Post("/train", func(ctx *fiber.Ctx) error {
+			train.TrainPipe(ctx, tasks)
+			return nil
+		})
+
+		app.Route("/tasks", func(app fiber.Router) {
+			app.Get("", func(ctx *fiber.Ctx) error {
+				common.SubToAll(ctx, tasks)
+				return nil
+			})
+
+			// app.Get("/:id", func(ctx *fiber.Ctx) error {
+			// 	common.GetTask(ctx, tasks)
+			// 	return nil
+			// })
+
+			app.Delete("/:id", func(ctx *fiber.Ctx) error {
+				common.DeleteTask(ctx, tasks)
+				return nil
+			})
+
+			// app.Get("/:id/status", func(ctx *fiber.Ctx) error {
+			// 	common.SubToTask(ctx, tasks)
+			// 	return nil
+			// })
+
+			app.Get("/:id/result", func(ctx *fiber.Ctx) error {
+				common.GetResult(ctx, tasks)
+				return nil
+			})
+		})
+	})
+
+	app.Listen(":8080")
 }

@@ -33,10 +33,15 @@ func SetupTerminationRoutine(cmd *exec.Cmd, taskId string, tasks map[string]Task
 
 	tasks[taskId] = task
 
-	for _, context := range task.Listeners {
-		data, _ := json.Marshal(gin.H{task.ID: task})
-		sendEvent(context, "onChange", data)
+	data, _ := json.Marshal(gin.H{task.ID: task})
+
+	sse := TaskSSE{
+		ID:    taskId,
+		Event: "onChange",
+		Data:  data,
 	}
+
+	task.Channel <- sse
 
 	if task.Status == FAILED {
 		purgeTask(taskId, tasks)

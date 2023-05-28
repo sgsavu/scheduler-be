@@ -2,11 +2,10 @@ package common
 
 import (
 	"fmt"
-	"net/http"
 	"os"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 )
 
 func purgeTask(taskId string, tasks map[string]Task) {
@@ -29,13 +28,13 @@ func PeriodicPurge(tasks map[string]Task) {
 	}
 }
 
-func DeleteTask(context *gin.Context, tasks map[string]Task) {
-	taskId := context.Param("id")
+func DeleteTask(context *fiber.Ctx, tasks map[string]Task) {
+	taskId := context.Params("id")
 
 	task, exists := tasks[taskId]
 
 	if !exists {
-		context.AbortWithStatusJSON(http.StatusNotFound, "Task not found")
+		context.SendStatus(404)
 		return
 	}
 
@@ -46,10 +45,10 @@ func DeleteTask(context *gin.Context, tasks map[string]Task) {
 		}
 		task.Status = CANCELLED
 		tasks[taskId] = task
-		context.JSON(http.StatusOK, "Success")
+		context.SendStatus(200)
 		return
 	}
 
 	purgeTask(taskId, tasks)
-	context.JSON(http.StatusOK, "Success")
+	context.SendStatus(200)
 }

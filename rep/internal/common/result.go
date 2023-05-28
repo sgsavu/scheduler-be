@@ -1,26 +1,19 @@
 package common
 
 import (
-	"net/http"
-
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 )
 
-func GetResult(context *gin.Context, tasks map[string]Task) {
-	taskId := context.Param("id")
+func GetResult(context *fiber.Ctx, tasks map[string]Task) {
+	taskId := context.Params("id")
 
 	task, exists := tasks[taskId]
 
-	if !exists {
-		context.AbortWithStatusJSON(http.StatusNotFound, "Task not found")
+	if !exists || task.Status != DONE {
+		context.SendStatus(404)
 		return
 	}
 
-	if task.Status != DONE {
-		context.AbortWithStatusJSON(http.StatusNotFound, "Task not done")
-		return
-	}
-
-	context.Writer.Header().Set("Content-Type", "application/zip")
-	context.File(TASKS_DIR + "/" + taskId + "/" + TASK_OUTPUT + "/result.zip")
+	context.Set("Content-Type", "application/zip")
+	context.Download(TASKS_DIR + "/" + taskId + "/" + TASK_OUTPUT + "/result.zip")
 }

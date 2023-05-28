@@ -1,75 +1,62 @@
 package common
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
-	"net/http"
 
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
+	"github.com/gofiber/fiber/v2"
+	"github.com/valyala/fasthttp"
 )
 
-var eventId = 0
-
-func establishSSE(context *gin.Context) {
-	context.Writer.Header().Set("Content-Type", "text/event-stream")
-	context.Writer.Header().Set("Cache-Control", "no-cache")
-	context.Writer.Flush()
+func establishSSE(context *fiber.Ctx) {
+	context.Set("Content-Type", "text/event-stream")
+	context.Set("Cache-Control", "no-cache")
+	context.Set("Connection", "keep-alive")
+	context.Set("Transfer-Encoding", "chunked")
 }
 
-func sendEvent(context *gin.Context, eventName string, data []byte) {
-	context.Writer.Write([]byte(fmt.Sprintf("id: %d\n", eventId)))
-	context.Writer.Write([]byte("event: " + eventName + "\n"))
-	context.Writer.Write([]byte(fmt.Sprintf("data: %s\n\n", data)))
-	context.Writer.Flush()
-	eventId++
+func forward(master chan TaskSSE, child chan TaskSSE) {
+	for {
+		taskSSE := <-child
+		master <- taskSSE
+	}
 }
 
-func SubToAll(context *gin.Context, tasks map[string]Task) {
+func SubToAll(context *fiber.Ctx, tasks map[string]Task) {
 	establishSSE(context)
 
-	connId := uuid.New().String()
+	masterChan := make(chan TaskSSE)
 
 	for _, task := range tasks {
-		task.Listeners[connId] = context
+		go forward(masterChan, task.Channel)
 	}
 
-	data, _ := json.Marshal(tasks)
-	sendEvent(context, "onChange", data)
+	context.Context().SetBodyStreamWriter(fasthttp.StreamWriter(func(w *bufio.Writer) {
+		var init = true
+		for {
 
-	for {
-		select {
-		case <-context.Request.Context().Done():
-			for _, task := range tasks {
-				delete(task.Listeners, connId)
+			if init {
+
+				data, _ := json.Marshal(tasks)
+
+				fmt.Fprintf(w, "id: %d\n", 1)
+				fmt.Fprintf(w, "event: %s\n", "onChange")
+				fmt.Fprintf(w, "data: %s\n\n", data)
+				w.Flush()
+				init = false
+				continue
 			}
 
-			return
+			taskSSE := <-masterChan
+			fmt.Fprintf(w, "id: %s\n", taskSSE.ID)
+			fmt.Fprintf(w, "event: %s\n", taskSSE.Event)
+			fmt.Fprintf(w, "data: %s\n\n", taskSSE.Data)
+			err := w.Flush()
+			if err != nil {
+				fmt.Printf("Error while flushing: %v. Closing http connection.\n", err)
+				break
+			}
 		}
-	}
-}
-
-func SubToTask(context *gin.Context, tasks map[string]Task) {
-	taskId := context.Param("id")
-
-	task, exists := tasks[taskId]
-
-	if !exists {
-		context.AbortWithStatusJSON(http.StatusNotFound, "Task not found")
-		return
-	}
-
-	establishSSE(context)
-
-	connId := uuid.New().String()
-	subscribersMap := task.Listeners
-	subscribersMap[connId] = context
-
-	for {
-		select {
-		case <-context.Request.Context().Done():
-			delete(subscribersMap, connId)
-			return
-		}
-	}
+	}))
 }

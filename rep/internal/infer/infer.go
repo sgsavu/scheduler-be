@@ -2,21 +2,20 @@ package infer
 
 import (
 	"fmt"
-	"net/http"
 	"os/exec"
 	"rep/internal/common"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
 
-func InferPipe(context *gin.Context, tasks map[string]common.Task) {
+func InferPipe(context *fiber.Ctx, tasks map[string]common.Task) {
 	var inferTaskPayload common.InferringTaskPayload
 
-	parseRequestError := context.ShouldBind(&inferTaskPayload)
+	parseRequestError := context.BodyParser(&inferTaskPayload)
 	if parseRequestError != nil {
-		context.AbortWithStatusJSON(http.StatusInternalServerError, parseRequestError.Error())
+		context.SendStatus(500)
 		return
 	}
 
@@ -45,7 +44,7 @@ func InferPipe(context *gin.Context, tasks map[string]common.Task) {
 
 	tasks[taskId] = common.Task{
 		ID:                  taskId,
-		Listeners:           make(map[string]*gin.Context),
+		Channel:             make(chan common.TaskSSE),
 		CreationTime:        time.Now(),
 		Status:              common.WORKING,
 		Type:                common.INFERRING,
@@ -53,12 +52,12 @@ func InferPipe(context *gin.Context, tasks map[string]common.Task) {
 		InferringTaskCommon: inferTaskPayload.InferringTaskCommon,
 	}
 
-	go common.HandleCmdOutput(stdout, taskId, tasks[taskId].Listeners)
+	go common.HandleCmdOutput(stdout, taskId, tasks[taskId].Channel)
 	go common.HandleCmdErrors(stderr, taskId, tasks)
 
 	startCommandError := cmd.Start()
 	if startCommandError != nil {
-		context.AbortWithStatusJSON(http.StatusInternalServerError, startCommandError.Error())
+		context.SendStatus(500)
 		return
 	}
 
@@ -68,5 +67,6 @@ func InferPipe(context *gin.Context, tasks map[string]common.Task) {
 
 	go common.SetupTerminationRoutine(cmd, taskId, tasks)
 
-	context.JSON(http.StatusOK, taskId)
+	context.Status(200)
+	context.SendString(taskId)
 }

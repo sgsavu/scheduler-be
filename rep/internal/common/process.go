@@ -15,7 +15,7 @@ func HandleCmdErrors(pipe io.ReadCloser, id string, tasks map[string]Task) {
 	tasks[id] = task
 }
 
-func HandleCmdOutput(pipe io.ReadCloser, taskId string, listeners map[string]*gin.Context) {
+func HandleCmdOutput(pipe io.ReadCloser, taskId string, channel chan TaskSSE) {
 	reader := bufio.NewReader(pipe)
 
 	for {
@@ -24,9 +24,14 @@ func HandleCmdOutput(pipe io.ReadCloser, taskId string, listeners map[string]*gi
 			return
 		}
 
-		for _, context := range listeners {
-			data, _ := json.Marshal(gin.H{taskId: string(line)})
-			sendEvent(context, "onStatus", data)
+		data, _ := json.Marshal(gin.H{taskId: string(line)})
+
+		taskSSE := TaskSSE{
+			ID:    taskId,
+			Event: "onStatus",
+			Data:  data,
 		}
+
+		channel <- taskSSE
 	}
 }
