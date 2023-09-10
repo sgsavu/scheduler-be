@@ -1,6 +1,5 @@
 import { useForm } from "../../utils/useForm";
 import { Info } from "../Icons";
-// import { useForm } from "../../utils/useForm";
 
 const INDEX_RATIO_TOOLTIP =
     `This value determines how much of the index feature will be used in the model.`
@@ -54,7 +53,7 @@ export const Infer = () => {
                         role="tooltip"
                     >
                         <label>Index ratio</label>
-                        {/* <Info class="info-icon" /> */}
+                        <Info class="info-icon" />
                     </div>
                     <input
                         value={0.5}
@@ -73,7 +72,7 @@ export const Infer = () => {
                         role="tooltip"
                     >
                         <label>Pitch</label>
-                        {/* <Info class="info-icon"></Info> */}
+                        <Info class="info-icon"/>
                     </div>
                     <input
                         value={4}

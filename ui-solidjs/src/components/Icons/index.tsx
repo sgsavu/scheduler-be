@@ -1,6 +1,6 @@
 export const Info =
-    () => (
-        <svg viewBox="0 0 12 12" >
+    (props: Record<string, unknown>) => (
+        <svg viewBox="0 0 12 12" {...props}>
             <g>
                 <path d="M6 10.6a4.6 4.6 0 1 0 0-9.2 4.6 4.6 0 0 0 0 9.2zM6 12A6 6 0 1 1 6 0a6 6 0 0 1 0 12z" />
                 <path d="M5.3 5.3h1.4V9H5.3zM5.3 3h1.4v1.4H5.3z" />
